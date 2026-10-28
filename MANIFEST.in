@@ -1,0 +1,3 @@
+# The sdist carries the package and its metadata; the tests stay in the repository.
+prune tests
+global-exclude __pycache__ *.py[cod]

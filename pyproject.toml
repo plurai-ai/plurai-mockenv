@@ -1,0 +1,161 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plurai-mockenv"
+version = "1.5.5"
+description = "Mock engine and tool descriptor schema for Plurai simulation environments"
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+# Runtime closure: stdlib + pydantic + the fastapi/uvicorn transport. langchain and httpx stay
+# out of it; httpx is a test-only dependency (FastAPI's TestClient).
+dependencies = [
+    "pydantic>=2.5",
+    # Installed into the agent's own environment: fastapi>=0.142 requires opentelemetry-api>=1.44 and would move the
+    # host's opentelemetry. The 0.140 ceiling avoids module-level caches keyed on route endpoints that keep every built
+    # MockService alive.
+    "fastapi>=0.100.0,<0.140",
+    "uvicorn",
+    # The transport runs handlers under its own anyio CapacityLimiter (service.py); already pulled in by starlette.
+    "anyio>=4.0,<5",
+]
+
+[project.urls]
+Homepage = "https://github.com/plurai-ai/plurai-mockenv"
+Repository = "https://github.com/plurai-ai/plurai-mockenv"
+Issues = "https://github.com/plurai-ai/plurai-mockenv/issues"
+Changelog = "https://github.com/plurai-ai/plurai-mockenv/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["plurai_mockenv*"]
+
+# Ship the PEP 561 ``py.typed`` marker so downstream type checkers consume
+# plurai_mockenv's inline annotations.
+[tool.setuptools.package-data]
+plurai_mockenv = ["py.typed"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pyyaml>=6.0", # the descriptor-schema test loads the example config via yaml
+    "httpx>=0.27", # FastAPI TestClient; must stay out of runtime deps so that a runtime-only install cannot import httpx
+    # ruff runs through `uvx ruff`; pyright is pinned so the type gate is reproducible.
+    "pyright==1.1.407",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+
+# Lint/format style shared with the Plurai SDK: line length 160, single quotes, py312.
+[tool.ruff]
+indent-width = 4
+line-length = 160
+target-version = "py312"
+src = ["plurai_mockenv", "tests"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "N8", "UP", "YTT", "ANN0", "ASYNC", "S", "BLE", "FBT", "B", "C4", "DTZ", "INP", "PIE", "PT", "Q", "RET", "SLF", "SLOT",
+    "LOG", "SIM", "TID", "PTH", "TD", "ERA",
+    "PL",
+    "FAST",
+]
+ignore = [
+    "S311", # While this is a good rule, 95% of the time random is not used for crypto
+    "PLR2004", # This rule is a bit overzealous
+    "PLR6301", # Methods that do not use self are accepted
+    "PLR0911", # Many return statements are accepted
+    "PLR0915", # Too many statements - acceptable for complex functions
+    "PLW0603", # Global statement is acceptable for settings cache
+    "BLE001", # Blind exceptions are acceptable with fallback logic
+    "PLR0912", # Too many branches - acceptable for complex interactive functions
+    "FBT001", # Boolean positional args - acceptable in internal APIs
+    "FBT002", # Boolean default positional args - acceptable in internal APIs
+    "PLC0415", # Late imports - acceptable for avoiding circular imports
+    "ANN001", # Parameters without annotations are accepted
+    "ANN003", # **kwargs without an annotation is accepted
+    "DTZ005", # datetime.now() without timezone - acceptable for timestamps
+    "SIM108", # Ternary operator - sometimes if-else is clearer
+    "SIM102", # Nested if statements - sometimes clearer than combined
+    "PTH123", # Path.open() - open() is fine
+    "TD002", # TODO author - not required for simple TODOs
+    "TD003", # TODO issue link - not required for simple TODOs
+    "B008", # Function call in arg defaults - the FastAPI Depends / typer pattern
+    "N806", # Non-lowercase var in function - function-scoped lazy imports of classes
+    "N803", # Non-lowercase arg name - lazy-imported classes threaded in as injected params
+    "PLR0913", # Too many arguments - acceptable for node/session factories (already ignored in tests)
+    "FBT003", # Boolean positional value in call - the typer.Option(False, ...) default pattern
+    "SIM105", # try/except/pass best-effort swallow - best-effort paths must never break a run (sibling of BLE001); contextlib.suppress cannot wrap the await-then-swallow forms
+    "S110", # same best-effort try/except/pass swallow - paired with BLE001
+    "ASYNC109", # async helper exposing a `timeout=` param - deliberate one-shot dispatch API
+    "ANN002", # *args without an annotation is accepted
+    "SLF001", # Private member access - the in-process mock runtime crosses its OWN private boundary (already ignored in tests/)
+    "PTH207", # glob over Path.glob - sibling of the already-ignored PTH123
+    "PTH118", # os.path.join over Path / - sibling of the already-ignored PTH123
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101", # Assert is expected in tests
+    "S105", # Hardcoded passwords in tests are acceptable
+    "S106", # Hardcoded passwords in tests are acceptable
+    "ANN001", # Missing type annotations acceptable in tests
+    "ANN002", # Missing type annotations for *args acceptable in tests
+    "ANN201", # Missing return type acceptable in tests
+    "PLR0913", # Too many arguments acceptable in tests
+    "PLR0915", # Too many statements acceptable in tests
+    "PTH123", # open() acceptable in tests
+    "SLF001", # Private member access acceptable in tests
+    "PT017", # Assert on exception acceptable in tests
+    "PT011", # pytest.raises without match parameter acceptable in tests
+    "S108", # Hardcoded /tmp paths are fine in tests
+    "S603", # subprocess calls are fine in tests
+    "PT018", # Composite asserts are fine in tests
+    "B017", # pytest.raises(Exception) is fine in tests
+    "INP001", # Test dirs intentionally have no __init__.py
+    "SIM117", # Nested with-statements are fine in tests
+    "C408", # dict() over literal is fine in tests
+    "N812", # Lowercase-imported-as-non-lowercase acceptable in tests
+    "N814", # CamelCase-imported-as-constant acceptable in tests
+    "N818", # Exception naming acceptable in tests
+    "N802", # Function name casing acceptable in tests
+    "E702", # Multiple statements on one line acceptable in tests
+    "ASYNC220", # Spawning processes in async tests is fine
+    "PT013", # pytest import style acceptable in tests
+    "B007", # Unused loop var acceptable in tests
+    "ERA001", # Commented-out code acceptable in tests
+    "PT019", # Fixture-without-value injected as param - the _seeded_set_metadata side-effect fixture pattern
+    "PT006", # parametrize names as a comma-string (not a tuple) - the conventional terse form
+    "PLW0108", # "unnecessary" lambda - kept for call-site readability in a test double
+    "RET503", # Implicit return - acceptable in test helper branches
+]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+multiline-quotes = "double"
+
+# Pyright basic mode is the typed-surface gate (py.typed ships) over the whole package. The four
+# diagnostic rules below are reported as warnings, not errors, and are not silenced.
+[tool.pyright]
+include = ["plurai_mockenv"]
+exclude = ["**/__pycache__", "**/*_generated.py"]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+reportArgumentType = "warning"
+reportOptionalMemberAccess = "warning"
+reportAttributeAccessIssue = "warning"
+reportOptionalCall = "warning"
