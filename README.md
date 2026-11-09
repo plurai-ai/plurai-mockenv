@@ -1,36 +1,10 @@
 # plurai-mockenv
 
-The shared, **pydantic-only** mock engine and tool descriptor schema that powers
-Plurai's deployed/generated mock environments.
+The mock engine behind Plurai simulation. It serves the mocked tools an agent calls during a simulated conversation:
+you register a plain Python function per tool, and the engine answers the agent's tool calls over HTTP, keeps each
+session's world state, and records what the agent did.
 
-`plurai-mockenv` contains exactly the engine a deployed mock env needs and nothing
-heavier:
-
-- **`MockEngine`** — the deep domain engine: session store, event-fold,
-  `/mock/execute` + `/mock/observe` dispatch, typed-RPC, and the inside-handler
-  bypass. Speaks domain types and raises domain errors (`UnknownSession`,
-  `InvalidTurn`); knows nothing about HTTP. It is the test surface
-  (`engine.execute(...)` directly).
-- **`MockService`** — the transport adapter: a **FastAPI app served by uvicorn**
-  that owns the frozen wire contract (`/session/create`, `/session/turn`,
-  `/mock/execute`, `/mock/observe`, `/state/*`, `/events/*`, `/health`). `_handle` is the
-  engine's internal FastAPI funnel dispatcher — it is **not** a public override
-  hook. Handlers / observers / typed-RPC schemas are registered with the `@mock`
-  / `@observe` decorators; the declarative `build_service(...)` factory collects
-  that staging registry and wires the built-in exposed-projection-v1 routes
-  (`GET /state/{sid}/exposed`, `POST /eval/expose`) when you pass
-  `exposed_state_fields`. The canonical entrypoints are `build_service(...)`
-  (programmatic) and `python -m plurai_mockenv` (CLI). For an explicit / isolated
-  registry set, construct `MockService(...)` directly (its constructor takes
-  `handlers` / `observers` / `descriptors` / `schemas` / `decorator_opt_out`).
-- **`@mock` / `@observe`** — the decorators that register inline mock handlers and
-  observers + their descriptors.
-- **`SimulationContext` / `WorldStateProxy` / `EntityStore` / `world_state`** — the
-  world-state proxies and the module-level `world_state` singleton, with the
-  inside-handler direct-memory bypass vs. outside-handler HTTP path.
-- **`ToolDescriptor`** and its condition models (the `descriptor_schema` surface) —
-  the single source of truth for the `tools.*.descriptor` grammar the backend's
-  mock generator consumes.
+It depends only on `pydantic`, `fastapi` and `uvicorn`, so a mock environment runs without the heavier Plurai SDK.
 
 ## Install
 
@@ -38,28 +12,50 @@ heavier:
 pip install plurai-mockenv
 ```
 
-Supported Python versions: 3.12 and 3.13. Consumers that import the private hook surface, such as the
-Plurai SDK (`plurai-simulation-sdk`), pin this package to an exact version (`plurai-mockenv==X.Y.Z`) and
-bump it per release; that surface is not part of the public API.
+Python 3.12 and 3.13 are supported.
 
-## Purity invariant
+## Usage
 
-`plurai_mockenv` imports nothing heavier than the standard library + `pydantic` +
-`fastapi`/`uvicorn` (the transport adapter). **No langchain, no httpx, no
-orchestrator** in the runtime closure — fastapi/uvicorn/starlette pull neither
-langchain nor httpx. `httpx` appears only as a DEV/test dependency (FastAPI's
-`TestClient`), never at runtime. This is the whole point: it lets a deployed mock
-env shed the heavy `plurai` SDK client closure (langchain-core + httpx +
-orchestrator + observability). The property: in a fresh environment that holds only
-`plurai-mockenv`, `import plurai_mockenv` succeeds while `import langchain_core` and
-`import httpx` both fail.
+Register a handler for each tool with `@mock`, then build and serve the mock service:
 
-## Consumers
+```python
+from plurai_mockenv import build_service, mock
 
-- **`plurai` (the client SDK)** re-exports this surface, so `plurai.MockService`, `plurai.mock`,
-  `plurai.ToolDescriptor` and `plurai.world_state` are the same objects.
-- **Generated mock envs** `import plurai_mockenv` directly (and run under a host venv
-  that carries only the pydantic-only engine), so they never install the SDK.
 
-The `/mock/*` JSON wire shapes are the contract; they are frozen between the
-SDK and this package.
+@mock('get_order')
+def get_order(order_id: str) -> dict:
+    """Look up an order by its id."""
+    return {'status': 'success', 'content': {'order_id': order_id, 'state': 'shipped'}}
+
+
+service = build_service(port=8199)
+service.serve_forever()
+```
+
+The handler's docstring and signature become the tool's description and arguments. A handler whose one parameter is a
+Pydantic model gets typed arguments. `@observe` registers an observer for a tool that runs for real: it records the
+tool's result in the session's world state.
+
+From the command line, `python -m plurai_mockenv --mocks my_mocks --port 8199` imports the module that holds your
+`@mock` handlers and serves them. `python -m plurai_mockenv --help` lists the options.
+
+The main names:
+
+- `build_service(...)` builds a `MockService` from the handlers that `@mock` and `@observe` registered.
+- `MockService` is the HTTP service. Construct it directly to pass handlers, observers and descriptors explicitly
+  instead of through the decorators.
+- `MockEngine` is the engine without HTTP (sessions, tool dispatch and world state), for tests that call it directly.
+- `world_state`, `SimulationContext`, `WorldStateProxy` and `EntityStore` read and change a session's world state from
+  inside a handler.
+- `ToolDescriptor` is the schema of a tool's description.
+
+## With the Plurai SDK
+
+The Plurai SDK (distribution `plurai-simulation-sdk`, import name `plurai`) re-exports these names, so
+`plurai.MockService`, `plurai.mock`, `plurai.ToolDescriptor` and `plurai.world_state` are the same objects. The SDK
+pins one exact release of `plurai-mockenv`; install the version it pins rather than upgrading this package on its own.
+
+## Issues and release notes
+
+See [CONTRIBUTING.md](https://github.com/plurai-ai/plurai-mockenv/blob/main/CONTRIBUTING.md) for how to report issues,
+and [CHANGELOG.md](https://github.com/plurai-ai/plurai-mockenv/blob/main/CHANGELOG.md) for release notes.

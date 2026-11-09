@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.6
+
+- **License.** The package metadata and `LICENSE` declare the package as proprietary software under the terms in `LICENSE`. Version 1.5.5 declares no license.
+- **Dependency floors.** Every floor is a release with no known security advisory: `fastapi>=0.109.1`, `starlette>=1.3.1`, `uvicorn>=0.12.1` and `anyio>=4.14.2`. The fastapi ceiling (`<0.140`) stays.
+
 ## 1.5.5
 
 First public release of `plurai-mockenv`: the pydantic-only mock engine and tool descriptor schema behind Plurai simulation environments.
